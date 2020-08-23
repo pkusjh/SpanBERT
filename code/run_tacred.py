@@ -73,6 +73,12 @@ class DataTrainingArguments:
         metadata={
             "help": "The input data dir. Should contain the .tsv files (or other data files) for the task."}
     )
+    data_cache_dir: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "The data cache dir. If ***_dataset.pt exist in cache dir, they will be loaded directly. Otherwise, dataset will be constructed and stored in cache dir (if not None)"
+        }
+    )
     max_seq_length: int = field(
         default=128,
         metadata={
@@ -155,8 +161,6 @@ class DataProcessor(object):
         i = 0
         for example in dataset:
             i += 1
-            if i>30:
-                break
             sentence = [convert_token(token) for token in example['token']]
             assert example['subj_start'] >= 0 and example['subj_start'] <= example['subj_end'] \
                 and example['subj_end'] < len(sentence)
@@ -396,23 +400,62 @@ def main():
     # Get datasets
     special_tokens = {}
     train_dataset, eval_dataset, test_dataset = None, None, None
+    data_cache_dir = data_args.data_cache_dir
+    if data_cache_dir:
+        os.makedirs(data_cache_dir, exist_ok=True)
+        train_cache_file = os.path.join(data_cache_dir, f"train_dataset_{data_args.max_seq_length}_{data_args.feature_mode}.pt")
+        eval_cache_file = os.path.join(data_cache_dir, f"eval_dataset_{data_args.max_seq_length}_{data_args.feature_mode}.pt")
+        test_cache_file = os.path.join(data_cache_dir, f"test_dataset_{data_args.max_seq_length}_{data_args.feature_mode}.pt")
+    
     if training_args.do_eval:
-        eval_examples = processor.get_dev_examples(data_args.data_dir)
-        eval_features = convert_examples_to_features(
-            eval_examples, label2id, data_args.max_seq_length, tokenizer, special_tokens, data_args.feature_mode)
-        eval_dataset = FeatureDataset(eval_features)
+        if data_cache_dir and os.path.exists(eval_cache_file):
+            print(f"loading eval dataset from {eval_cache_file}")
+            eval_dataset = torch.load(eval_cache_file)
+            print("load done")
+        else:
+            print("constructing eval dataset")
+            eval_examples = processor.get_dev_examples(data_args.data_dir)
+            eval_features = convert_examples_to_features(
+                eval_examples, label2id, data_args.max_seq_length, tokenizer, special_tokens, data_args.feature_mode)
+            eval_dataset = FeatureDataset(eval_features)
+            if data_cache_dir:
+                print(f"saving eval dataset to {eval_cache_file}")
+                torch.save(eval_dataset, eval_cache_file)
+                print("save done")
+
 
     if training_args.do_train:
-        train_examples = processor.get_train_examples(data_args.data_dir)
-        train_features = convert_examples_to_features(
-            train_examples, label2id, data_args.max_seq_length, tokenizer, special_tokens, data_args.feature_mode)
-        train_dataset = FeatureDataset(train_features)
+        if data_cache_dir and os.path.exists(train_cache_file):
+            print(f"loading train dataset from {train_cache_file}")
+            train_dataset = torch.load(train_cache_file)
+            print("load done")
+        else:
+            print("constructing train dataset")
+            train_examples = processor.get_train_examples(data_args.data_dir)
+            train_features = convert_examples_to_features(
+                train_examples, label2id, data_args.max_seq_length, tokenizer, special_tokens, data_args.feature_mode)
+            train_dataset = FeatureDataset(train_features)
+            if data_cache_dir:
+                print(f"saving train dataset to {train_cache_file}")
+                torch.save(train_dataset, train_cache_file)
+                print("save done")
+
 
     if training_args.do_predict:
-        test_examples = processor.get_test_examples(data_args.data_dir)
-        test_features = convert_examples_to_features(
-            test_examples, label2id, data_args.max_seq_length, tokenizer, special_tokens, data_args.feature_mode)
-        test_dataset = FeatureDataset(test_features)
+        if data_cache_dir and os.path.exists(test_cache_file):
+            print(f"loading test dataset from {test_cache_file}")
+            test_dataset = torch.load(test_cache_file)
+            print("load done")
+        else:
+            print("constructing test dataset")
+            test_examples = processor.get_test_examples(data_args.data_dir)
+            test_features = convert_examples_to_features(
+                test_examples, label2id, data_args.max_seq_length, tokenizer, special_tokens, data_args.feature_mode)
+            test_dataset = FeatureDataset(test_features)
+            if data_cache_dir:
+                print(f"saving test dataset to {test_cache_file}")
+                torch.save(test_dataset, test_cache_file)
+                print("save done")
 
     # Initialize our Trainer
     trainer = Trainer(
@@ -437,9 +480,9 @@ def main():
 
     if training_args.do_predict:
         logger.info("*** Test ***")
-        eval_result = trainer.evaluate(eval_dataset=eval_dataset)
+        test_result = trainer.evaluate(eval_dataset=test_dataset)
         if trainer.is_world_master():
-            print(eval_result)
+            print(test_result)
 
 if __name__ == "__main__":
     main()
