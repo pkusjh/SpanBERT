@@ -1,0 +1,16 @@
+python code/run_tacred.py \
+  --do_train \
+  --do_eval \
+  --do_predict \
+  --evaluate_during_training \
+  --eval_steps 3 \
+  --data_dir data/tacred \
+  --model out_text_pooling \
+  --per_device_train_batch_size 8 \
+  --per_device_eval_batch_size 8 \
+  --learning_rate 2e-5 \
+  --num_train_epochs 2\
+  --max_seq_length 128 \
+  --output_dir tacred_dir \
+  --no_cuda \
+  --overwrite_output_dir
