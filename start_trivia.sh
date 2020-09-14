@@ -1,0 +1,15 @@
+CUDA_VISIBLE_DEVICES=4,5,6,7 python code/run_mrqa_trainer.py \
+  --do_train \
+  --do_eval \
+  --model_name_or_path bert-base-cased \
+  --train_file triviaQA/TriviaQA-train.jsonl.gz \
+  --dev_file triviaQA/TriviaQA-dev.jsonl.gz \
+  --data_cache_dir cache_trivia \
+  --per_device_train_batch_size 8 \
+  --per_device_eval_batch_size 8 \
+  --learning_rate 2e-5 \
+  --num_train_epochs 1 \
+  --max_seq_length 512 \
+  --doc_stride 128 \
+  --output_dir triviaqa_dir \
+  --overwrite_output_dir

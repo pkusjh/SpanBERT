@@ -1,4 +1,4 @@
-CUDA_VISIBLE_DEVICES=0,1,3,4,5 python  code/run_tacred.py \
+CUDA_VISIBLE_DEVICES=0,1,3,4,5 python  code/run_tacred_trainer.py \
   --do_train \
   --do_eval \
   --do_predict \
