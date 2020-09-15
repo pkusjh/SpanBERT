@@ -14,6 +14,7 @@ import time
 import sys
 import gzip
 from io import open
+from tqdm import tqdm
 
 import numpy as np
 import torch
@@ -110,7 +111,7 @@ def read_mrqa_examples(input_file, is_training):
     with gzip.GzipFile(input_file, 'r') as reader:
         # skip header
         content = reader.read().decode('utf-8').strip().split('\n')[1:]
-        input_data = [json.loads(line) for line in content][0:100]
+        input_data = [json.loads(line) for line in content]
 
     def is_whitespace(c):
         if c == " " or c == "\t" or c == "\r" or c == "\n" or ord(c) == 0x202F:
@@ -581,7 +582,7 @@ def get_raw_scores(dataset, predictions):
     f1_scores = {}
     for qid, ground_truths in answers.items():
         if qid not in predictions:
-            print('Missing prediction for %s' % qid)
+            #print('Missing prediction for %s' % qid)
             continue
         prediction = predictions[qid]
         exact_scores[qid] = metric_max_over_ground_truths(
@@ -612,7 +613,8 @@ def evaluate(args, model, device, eval_dataset, eval_dataloader,
              eval_examples, eval_features, verbose=True):
     all_results = []
     model.eval()
-    for input_ids, input_mask, segment_ids, example_indices in eval_dataloader:
+    logger.info("evaluating...")
+    for input_ids, input_mask, segment_ids, example_indices in tqdm(eval_dataloader):
         if len(all_results) % 1000 == 0:
             logger.info("Processing example: %d" % (len(all_results)))
         input_ids = input_ids.to(device)
@@ -835,10 +837,10 @@ def main(args):
             nb_tr_steps = 0
             global_step = 0
             start_time = time.time()
-            for epoch in range(int(args.num_train_epochs)):
+            for epoch in tqdm(range(int(args.num_train_epochs))):
                 model.train()
                 logger.info("Start epoch #{} (lr = {})...".format(epoch, lr))
-                for step, batch in enumerate(train_batches):
+                for step, batch in enumerate(tqdm(train_batches)):
                     #if n_gpu == 1:
                     batch = tuple(t.to(device) for t in batch)
                     input_ids, input_mask, segment_ids, start_positions, end_positions = batch
