@@ -279,7 +279,7 @@ def evaluate(model, device, eval_dataloader, eval_label_ids, num_labels, verbose
         segment_ids = segment_ids.to(device)
         label_ids = label_ids.to(device)
         with torch.no_grad():
-            logits = model(input_ids, segment_ids, input_mask, labels=None)[0]
+            logits = model(input_ids=input_ids, token_type_ids=segment_ids, attention_mask=input_mask, labels=None)[0]
         loss_fct = CrossEntropyLoss()
         tmp_eval_loss = loss_fct(logits.view(-1, num_labels), label_ids.view(-1))
         eval_loss += tmp_eval_loss.mean().item()
@@ -436,7 +436,7 @@ def main(args):
                 for step, batch in enumerate(train_batches):
                     batch = tuple(t.to(device) for t in batch)
                     input_ids, input_mask, segment_ids, label_ids = batch
-                    loss = model(input_ids, segment_ids, input_mask, label_ids)[0]
+                    loss = model(input_ids=input_ids, token_type_ids=segment_ids, attention_mask=input_mask, label_ids)[0]
                     if n_gpu > 1:
                         loss = loss.mean()
                     if args.gradient_accumulation_steps > 1:
