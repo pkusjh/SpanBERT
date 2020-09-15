@@ -110,7 +110,7 @@ def read_mrqa_examples(input_file, is_training):
     with gzip.GzipFile(input_file, 'r') as reader:
         # skip header
         content = reader.read().decode('utf-8').strip().split('\n')[1:]
-        input_data = [json.loads(line) for line in content]
+        input_data = [json.loads(line) for line in content][0:100]
 
     def is_whitespace(c):
         if c == " " or c == "\t" or c == "\r" or c == "\n" or ord(c) == 0x202F:
@@ -619,7 +619,7 @@ def evaluate(args, model, device, eval_dataset, eval_dataloader,
         input_mask = input_mask.to(device)
         segment_ids = segment_ids.to(device)
         with torch.no_grad():
-            batch_start_logits, batch_end_logits = model(input_ids, segment_ids, input_mask)
+            batch_start_logits, batch_end_logits = model(input_ids=input_ids, token_type_ids=segment_ids, attention_mask=input_mask)
         for i, example_index in enumerate(example_indices):
             start_logits = batch_start_logits[i].detach().cpu().tolist()
             end_logits = batch_end_logits[i].detach().cpu().tolist()
@@ -646,6 +646,7 @@ def main(args):
     n_gpu = torch.cuda.device_count()
     logger.info("device: {}, n_gpu: {}, 16-bits training: {}".format(
         device, n_gpu, args.fp16))
+    
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -684,19 +685,29 @@ def main(args):
     data_cache_dir = args.data_cache_dir
     if data_cache_dir:
         os.makedirs(data_cache_dir, exist_ok=True)
-        train_cache_file = os.path.join(data_cache_dir, f"train_dataset.pt")
-        eval_cache_file = os.path.join(data_cache_dir, f"eval_dataset.pt")
-        test_cache_file = os.path.join(data_cache_dir, f"test_dataset.pt")
+        train_cache_dataset = os.path.join(data_cache_dir, f"train_dataset.pt")
+        eval_cache_dataset = os.path.join(data_cache_dir, f"eval_dataset.pt")
+        test_cache_dataset = os.path.join(data_cache_dir, f"test_dataset.pt")
+        train_cache_feature = os.path.join(data_cache_dir, f"train_feature.pt")
+        eval_cache_feature = os.path.join(data_cache_dir, f"eval_feature.pt")
+        test_cache_feature = os.path.join(data_cache_dir, f"test_feature.pt")
+        train_cache_example = os.path.join(data_cache_dir, f"train_example.pt")
+        eval_cache_example = os.path.join(data_cache_dir, f"eval_example.pt")
+        test_cache_example = os.path.join(data_cache_dir, f"test_example.pt")
 
     if args.do_train or (not args.eval_test):
-        if data_cache_dir and os.path.exists(eval_cache_file):
-            print(f"loading eval dataset from {eval_cache_file}")
-            eval_data = torch.load(eval_cache_file)
+        with gzip.GzipFile(args.dev_file, 'r') as reader:
+            content = reader.read().decode('utf-8').strip().split('\n')[1:]
+            eval_dataset = [json.loads(line) for line in content]
+        if data_cache_dir and os.path.exists(eval_cache_dataset) and os.path.exists(eval_cache_feature) and os.path.exists(eval_cache_example):
+            print(f"loading eval dataset from {eval_cache_dataset}")
+            eval_data = torch.load(eval_cache_dataset)
+            print(f"loading eval feature from {eval_cache_feature}")
+            eval_features = torch.load(eval_cache_feature)
+            print(f"loading eval example from {eval_cache_example}")
+            eval_examples = torch.load(eval_cache_example)
             print("load done")
         else:
-            with gzip.GzipFile(args.dev_file, 'r') as reader:
-                content = reader.read().decode('utf-8').strip().split('\n')[1:]
-                eval_dataset = [json.loads(line) for line in content]
             eval_examples = read_mrqa_examples(
                 input_file=args.dev_file, is_training=False)
             eval_features = convert_examples_to_features(
@@ -706,25 +717,33 @@ def main(args):
                 doc_stride=args.doc_stride,
                 max_query_length=args.max_query_length,
                 is_training=False)
-            logger.info("***** Dev *****")
-            logger.info("  Num orig examples = %d", len(eval_examples))
-            logger.info("  Num split examples = %d", len(eval_features))
-            logger.info("  Batch size = %d", args.eval_batch_size)
             all_input_ids = torch.tensor([f.input_ids for f in eval_features], dtype=torch.long)
             all_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
             all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
             all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
             eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index)
             if data_cache_dir:
-                print(f"saving eval dataset to {eval_cache_file}")
-                torch.save(eval_data, eval_cache_file)
+                print(f"saving eval dataset to {eval_cache_dataset}")
+                torch.save(eval_data, eval_cache_dataset)
+                print(f"saving eval features to {eval_cache_feature}")
+                torch.save(eval_features, eval_cache_feature)
+                print(f"saving eval examples to {eval_cache_example}")
+                torch.save(eval_examples, eval_cache_example)
                 print("save done")
+        logger.info("***** Dev *****")
+        logger.info("  Num orig examples = %d", len(eval_examples))
+        logger.info("  Num split examples = %d", len(eval_features))
+        logger.info("  Batch size = %d", args.eval_batch_size)
         eval_dataloader = DataLoader(eval_data, batch_size=args.eval_batch_size)
 
     if args.do_train:
-        if data_cache_dir and os.path.exists(train_cache_file):
-            print(f"loading train dataset from {train_cache_file}")
-            train_data = torch.load(train_cache_file)
+        if data_cache_dir and os.path.exists(train_cache_dataset) and os.path.exists(train_cache_feature) and os.path.exists(train_cache_example):
+            print(f"loading train dataset from {train_cache_dataset}")
+            train_data = torch.load(train_cache_dataset)
+            print(f"loading train feature from {train_cache_feature}")
+            train_features = torch.load(train_cache_feature)
+            print(f"loading train example from {train_cache_example}")
+            train_examples = torch.load(train_cache_example)
             print("load done")
         else:
             train_examples = read_mrqa_examples(
@@ -751,8 +770,12 @@ def main(args):
             train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids,
                                     all_start_positions, all_end_positions)
             if data_cache_dir:
-                print(f"saving train dataset to {train_cache_file}")
-                torch.save(train_data, train_cache_file)
+                print(f"saving train dataset to {train_cache_dataset}")
+                torch.save(train_data, train_cache_dataset)
+                print(f"saving train features to {train_cache_feature}")
+                torch.save(train_features, train_cache_feature)
+                print(f"saving train examples to {train_cache_example}")
+                torch.save(train_examples, train_cache_example)
                 print("save done")
         train_dataloader = DataLoader(train_data, batch_size=args.train_batch_size)
         train_batches = [batch for batch in train_dataloader]
@@ -816,15 +839,14 @@ def main(args):
                 model.train()
                 logger.info("Start epoch #{} (lr = {})...".format(epoch, lr))
                 for step, batch in enumerate(train_batches):
-                    if n_gpu == 1:
-                        batch = tuple(t.to(device) for t in batch)
+                    #if n_gpu == 1:
+                    batch = tuple(t.to(device) for t in batch)
                     input_ids, input_mask, segment_ids, start_positions, end_positions = batch
-                    loss = model(input_ids, segment_ids, input_mask, start_positions, end_positions)
+                    loss = model(input_ids=input_ids, token_type_ids=segment_ids, attention_mask=input_mask, start_positions=start_positions, end_positions=end_positions)[0]
                     if n_gpu > 1:
                         loss = loss.mean()
                     if args.gradient_accumulation_steps > 1:
                         loss = loss / args.gradient_accumulation_steps
-
                     tr_loss += loss.item()
                     nb_tr_examples += input_ids.size(0)
                     nb_tr_steps += 1
@@ -881,14 +903,18 @@ def main(args):
 
     if args.do_eval:
         if args.eval_test:
-            if data_cache_dir and os.path.exists(test_cache_file):
-                print(f"loading test dataset from {test_cache_file}")
-                eval_data = torch.load(test_cache_file)
+            with gzip.GzipFile(args.test_file, 'r') as reader:
+                content = reader.read().decode('utf-8').strip().split('\n')[1:]
+                eval_dataset = [json.loads(line) for line in content]
+            if data_cache_dir and os.path.exists(test_cache_dataset) and os.path.exists(test_cache_feature) and os.path.exists(test_cache_example):
+                print(f"loading test dataset from {test_cache_dataset}")
+                eval_data = torch.load(test_cache_dataset)
+                print(f"loading test feature from {test_cache_feature}")
+                eval_features = torch.load(test_cache_feature)
+                print(f"loading test example from {test_cache_example}")
+                eval_examples = torch.load(test_cache_example)
                 print("load done")
             else:
-                with gzip.GzipFile(args.test_file, 'r') as reader:
-                    content = reader.read().decode('utf-8').strip().split('\n')[1:]
-                    eval_dataset = [json.loads(line) for line in content]
                 eval_examples = read_mrqa_examples(
                     input_file=args.test_file, is_training=False)
                 eval_features = convert_examples_to_features(
@@ -898,19 +924,23 @@ def main(args):
                     doc_stride=args.doc_stride,
                     max_query_length=args.max_query_length,
                     is_training=False)
-                logger.info("***** Test *****")
-                logger.info("  Num orig examples = %d", len(eval_examples))
-                logger.info("  Num split examples = %d", len(eval_features))
-                logger.info("  Batch size = %d", args.eval_batch_size)
                 all_input_ids = torch.tensor([f.input_ids for f in eval_features], dtype=torch.long)
                 all_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
                 all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
                 all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
                 eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index)
                 if data_cache_dir:
-                    print(f"saving test dataset to {test_cache_file}")
-                    torch.save(eval_data, test_cache_file)
+                    print(f"saving test dataset to {test_cache_dataset}")
+                    torch.save(eval_data, test_cache_dataset)
+                    print(f"saving test features to {test_cache_feature}")
+                    torch.save(eval_features, test_cache_feature)
+                    print(f"saving test examples to {test_cache_example}")
+                    torch.save(eval_examples, test_cache_example)
                     print("save done")
+            logger.info("***** Test *****")
+            logger.info("  Num orig examples = %d", len(eval_examples))
+            logger.info("  Num split examples = %d", len(eval_features))
+            logger.info("  Batch size = %d", args.eval_batch_size)
             eval_dataloader = DataLoader(eval_data, batch_size=args.eval_batch_size)
         model = BertForQuestionAnswering.from_pretrained(args.output_dir)
         if args.fp16:
