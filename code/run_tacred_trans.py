@@ -10,6 +10,7 @@ import os
 import random
 import time
 import json
+from tqdm import tqdm
 
 import numpy as np
 import torch
@@ -338,36 +339,64 @@ def main(args):
     tokenizer = BertTokenizer.from_pretrained(args.model, do_lower_case=args.do_lower_case)
 
     special_tokens = {}
+    data_cache_dir = args.data_cache_dir
+    if data_cache_dir:
+        os.makedirs(data_cache_dir, exist_ok=True)
+        train_cache_file = os.path.join(
+            data_cache_dir, f"train_dataset_{args.max_seq_length}_{args.feature_mode}.pt")
+        eval_cache_file = os.path.join(
+            data_cache_dir, f"eval_dataset_{args.max_seq_length}_{args.feature_mode}.pt")
+        test_cache_file = os.path.join(
+            data_cache_dir, f"test_dataset_{args.max_seq_length}_{args.feature_mode}.pt")
+
     if args.do_eval:
-        eval_examples = processor.get_dev_examples(args.data_dir)
-        eval_features = convert_examples_to_features(
-            eval_examples, label2id, args.max_seq_length, tokenizer, special_tokens, args.feature_mode)
+        if data_cache_dir and os.path.exists(eval_cache_file):
+            print(f"loading eval dataset from {eval_cache_file}")
+            eval_data, eval_examples, all_label_ids = torch.load(eval_cache_file)
+            print("load done")
+        else:
+            eval_examples = processor.get_dev_examples(args.data_dir)
+            eval_features = convert_examples_to_features(
+                eval_examples, label2id, args.max_seq_length, tokenizer, special_tokens, args.feature_mode)
+            all_input_ids = torch.tensor([f.input_ids for f in eval_features], dtype=torch.long)
+            all_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
+            all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
+            all_label_ids = torch.tensor([f.label_id for f in eval_features], dtype=torch.long)
+            eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
+            if data_cache_dir:
+                print(f"saving eval dataset to {eval_cache_file}")
+                torch.save((eval_data, eval_examples, all_label_ids), eval_cache_file)
+                print("save done")
         logger.info("***** Dev *****")
         logger.info("  Num examples = %d", len(eval_examples))
         logger.info("  Batch size = %d", args.eval_batch_size)
-        all_input_ids = torch.tensor([f.input_ids for f in eval_features], dtype=torch.long)
-        all_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
-        all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
-        all_label_ids = torch.tensor([f.label_id for f in eval_features], dtype=torch.long)
-        eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
         eval_dataloader = DataLoader(eval_data, batch_size=args.eval_batch_size)
         eval_label_ids = all_label_ids
 
     if args.do_train:
-        train_examples = processor.get_train_examples(args.data_dir)
-        train_features = convert_examples_to_features(
-                train_examples, label2id, args.max_seq_length, tokenizer, special_tokens, args.feature_mode)
-
-        if args.train_mode == 'sorted' or args.train_mode == 'random_sorted':
-            train_features = sorted(train_features, key=lambda f: np.sum(f.input_mask))
+        if data_cache_dir and os.path.exists(train_cache_file):
+            print(f"loading train dataset from {train_cache_file}")
+            train_data, train_examples = torch.load(train_cache_file)
+            print("load done")
         else:
-            random.shuffle(train_features)
+            train_examples = processor.get_train_examples(args.data_dir)
+            train_features = convert_examples_to_features(
+                    train_examples, label2id, args.max_seq_length, tokenizer, special_tokens, args.feature_mode)
 
-        all_input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
-        all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
-        all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
-        all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
-        train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
+            if args.train_mode == 'sorted' or args.train_mode == 'random_sorted':
+                train_features = sorted(train_features, key=lambda f: np.sum(f.input_mask))
+            else:
+                random.shuffle(train_features)
+
+            all_input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
+            all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
+            all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
+            all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
+            train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
+            if data_cache_dir:
+                print(f"saving train dataset to {train_cache_file}")
+                torch.save((train_data, train_examples), train_cache_file)
+                print("save done")
         train_dataloader = DataLoader(train_data, batch_size=args.train_batch_size)
         train_batches = [batch for batch in train_dataloader]
 
@@ -433,10 +462,10 @@ def main(args):
                 logger.info("Start epoch #{} (lr = {})...".format(epoch, lr))
                 if args.train_mode == 'random' or args.train_mode == 'random_sorted':
                     random.shuffle(train_batches)
-                for step, batch in enumerate(train_batches):
+                for step, batch in enumerate(tqdm(train_batches)):
                     batch = tuple(t.to(device) for t in batch)
                     input_ids, input_mask, segment_ids, label_ids = batch
-                    loss = model(input_ids=input_ids, token_type_ids=segment_ids, attention_mask=input_mask, label_ids)[0]
+                    loss = model(input_ids=input_ids, token_type_ids=segment_ids, attention_mask=input_mask, labels=label_ids)[0]
                     if n_gpu > 1:
                         loss = loss.mean()
                     if args.gradient_accumulation_steps > 1:
@@ -503,17 +532,26 @@ def main(args):
 
     if args.do_eval:
         if args.eval_test:
-            eval_examples = processor.get_test_examples(args.data_dir)
-            eval_features = convert_examples_to_features(
-                eval_examples, label2id, args.max_seq_length, tokenizer, special_tokens, args.feature_mode)
+            if data_cache_dir and os.path.exists(test_cache_file):
+                print(f"loading test dataset from {test_cache_file}")
+                eval_data, eval_examples, all_label_ids = torch.load(test_cache_file)
+                print("load done")
+            else:
+                eval_examples = processor.get_test_examples(args.data_dir)
+                eval_features = convert_examples_to_features(
+                    eval_examples, label2id, args.max_seq_length, tokenizer, special_tokens, args.feature_mode)
+                all_input_ids = torch.tensor([f.input_ids for f in eval_features], dtype=torch.long)
+                all_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
+                all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
+                all_label_ids = torch.tensor([f.label_id for f in eval_features], dtype=torch.long)
+                eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
+                if data_cache_dir:
+                    print(f"saving test dataset to {test_cache_file}")
+                    torch.save((eval_data, eval_examples, all_label_ids), test_cache_file)
+                    print("save done")
             logger.info("***** Test *****")
             logger.info("  Num examples = %d", len(eval_examples))
             logger.info("  Batch size = %d", args.eval_batch_size)
-            all_input_ids = torch.tensor([f.input_ids for f in eval_features], dtype=torch.long)
-            all_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
-            all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
-            all_label_ids = torch.tensor([f.label_id for f in eval_features], dtype=torch.long)
-            eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
             eval_dataloader = DataLoader(eval_data, batch_size=args.eval_batch_size)
             eval_label_ids = all_label_ids
         model = BertForSequenceClassification.from_pretrained(args.output_dir, num_labels=num_labels)
@@ -534,6 +572,7 @@ if __name__ == "__main__":
     parser.add_argument("--model", default=None, type=str, required=True)
     parser.add_argument("--data_dir", default=None, type=str, required=True,
                         help="The input data dir. Should contain the .tsv files (or other data files) for the task.")
+    parser.add_argument("--data_cache_dir", default=None, type=str)
     parser.add_argument("--output_dir", default=None, type=str, required=True,
                         help="The output directory where the model predictions and checkpoints will be written.")
     parser.add_argument("--eval_per_epoch", default=10, type=int,

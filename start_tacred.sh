@@ -1,15 +1,13 @@
-CUDA_VISIBLE_DEVICES=0,1,3,4,5 python  code/run_tacred_trainer.py \
+CUDA_VISIBLE_DEVICES=1,2,3,4,5,6,7 python code/run_tacred_trans.py \
   --do_train \
   --do_eval \
-  --do_predict \
-  --evaluate_during_training \
-  --eval_steps 100 \
+  --eval_test \
   --data_dir data/tacred \
   --data_cache_dir cache/tacred \
-  --model trained_model \
-  --per_device_train_batch_size 12 \
-  --per_device_eval_batch_size 24 \
+  --model bert-base-cased \
+  --train_batch_size 128 \
+  --eval_batch_size 128 \
   --learning_rate 2e-5 \
-  --num_train_epochs 10\
+  --num_train_epochs 10 \
   --max_seq_length 128 \
-  --output_dir tacred_dir 
+  --output_dir tacred_dir
