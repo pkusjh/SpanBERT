@@ -352,7 +352,7 @@ def main(args):
     if args.do_eval:
         if data_cache_dir and os.path.exists(eval_cache_file):
             print(f"loading eval dataset from {eval_cache_file}")
-            eval_data, eval_examples, all_label_ids = torch.load(eval_cache_file)
+            eval_data, eval_examples, all_label_ids, special_tokens = torch.load(eval_cache_file)
             print("load done")
         else:
             eval_examples = processor.get_dev_examples(args.data_dir)
@@ -365,7 +365,7 @@ def main(args):
             eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
             if data_cache_dir:
                 print(f"saving eval dataset to {eval_cache_file}")
-                torch.save((eval_data, eval_examples, all_label_ids), eval_cache_file)
+                torch.save((eval_data, eval_examples, all_label_ids, special_tokens), eval_cache_file)
                 print("save done")
         logger.info("***** Dev *****")
         logger.info("  Num examples = %d", len(eval_examples))
@@ -376,7 +376,7 @@ def main(args):
     if args.do_train:
         if data_cache_dir and os.path.exists(train_cache_file):
             print(f"loading train dataset from {train_cache_file}")
-            train_data, train_examples = torch.load(train_cache_file)
+            train_data, train_examples, special_tokens = torch.load(train_cache_file)
             print("load done")
         else:
             train_examples = processor.get_train_examples(args.data_dir)
@@ -395,7 +395,7 @@ def main(args):
             train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
             if data_cache_dir:
                 print(f"saving train dataset to {train_cache_file}")
-                torch.save((train_data, train_examples), train_cache_file)
+                torch.save((train_data, train_examples, special_tokens), train_cache_file)
                 print("save done")
         train_dataloader = DataLoader(train_data, batch_size=args.train_batch_size)
         train_batches = [batch for batch in train_dataloader]
@@ -534,7 +534,7 @@ def main(args):
         if args.eval_test:
             if data_cache_dir and os.path.exists(test_cache_file):
                 print(f"loading test dataset from {test_cache_file}")
-                eval_data, eval_examples, all_label_ids = torch.load(test_cache_file)
+                eval_data, eval_examples, all_label_ids, special_tokens = torch.load(test_cache_file)
                 print("load done")
             else:
                 eval_examples = processor.get_test_examples(args.data_dir)
@@ -547,7 +547,7 @@ def main(args):
                 eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
                 if data_cache_dir:
                     print(f"saving test dataset to {test_cache_file}")
-                    torch.save((eval_data, eval_examples, all_label_ids), test_cache_file)
+                    torch.save((eval_data, eval_examples, all_label_ids, special_tokens), test_cache_file)
                     print("save done")
             logger.info("***** Test *****")
             logger.info("  Num examples = %d", len(eval_examples))
