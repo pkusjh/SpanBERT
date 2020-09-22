@@ -336,7 +336,8 @@ def main(args):
     label2id = {label: i for i, label in enumerate(label_list)}
     id2label = {i: label for i, label in enumerate(label_list)}
     num_labels = len(label_list)
-    tokenizer = BertTokenizer.from_pretrained(args.model, do_lower_case=args.do_lower_case)
+    vocab_file = args.vocab if args.vocab else args.model
+    tokenizer = BertTokenizer.from_pretrained(vocab_file, do_lower_case=args.do_lower_case)
 
     special_tokens = {}
     data_cache_dir = args.data_cache_dir
@@ -570,6 +571,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default=None, type=str, required=True)
+    parser.add_argument("--vocab", default=None, type=str, help="path to vocab file")
     parser.add_argument("--data_dir", default=None, type=str, required=True,
                         help="The input data dir. Should contain the .tsv files (or other data files) for the task.")
     parser.add_argument("--data_cache_dir", default=None, type=str)
