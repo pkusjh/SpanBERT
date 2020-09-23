@@ -15,4 +15,5 @@ CUDA_VISIBLE_DEVICES=$CUDA python code/run_tacred_trans.py \
   --learning_rate 2e-5 \
   --num_train_epochs 10 \
   --max_seq_length 128 \
+  --feature_mode text \
   --output_dir output_$MODELNAME_$STEP
